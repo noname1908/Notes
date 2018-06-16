@@ -75,47 +75,47 @@
     - Test
         - Truy cập trình duyệt với đường dẫn đã cấu hình và nhận được lỗi 502.
 
-    - Dịch vụ Nginx chạy với user mặc định `nginx`
+- Dịch vụ Nginx chạy với user mặc định `nginx`
 
-**Nguyên nhân chính**
-    - SELinux Policies.
+**Root Cause**
+- SELinux Policies.
 
-**Cách sửa**
-    - Cài đặt công cụ audit2allow
+**How to Fix**
+- Cài đặt công cụ audit2allow
+    ```sh
+    yum provides audit2allow
+    // Output: 
+    // policycoreutils-python-2.5-17.1.el7.x86_64 : SELinux policy core python utilities
+
+    sudo yum install -y policycoreutils-python
+    ```
+
+- Cài đặt và áp dụng các quy tắc chư được chấp nhận cho Nginx.
+    1. Check audit.log
         ```sh
-        yum provides audit2allow
-        // Output: 
-        // policycoreutils-python-2.5-17.1.el7.x86_64 : SELinux policy core python utilities
+        sudo cat /var/log/audit/audit.log | grep nginx | grep denied
 
-        sudo yum install -y policycoreutils-python
+        // You may find messages like:
+        type=AVC msg=audit(1506398841.964:345): avc:  denied  { getattr } for  pid=20510 comm="nginx" path="/var/www/html/index.html" dev="dm-0" ino=635249 scontext=system_u:system_r:httpd_t:s0 tcontext=unconfined_u:object_r:var_t:s0 tclass=file
         ```
-    
-    - Cài đặt và áp dụng các quy tắc chư được chấp nhận cho Nginx.
-        1. Check audit.log
-            ```sh
-            sudo cat /var/log/audit/audit.log | grep nginx | grep denied
 
-            // You may find messages like:
-            type=AVC msg=audit(1506398841.964:345): avc:  denied  { getattr } for  pid=20510 comm="nginx" path="/var/www/html/index.html" dev="dm-0" ino=635249 scontext=system_u:system_r:httpd_t:s0 tcontext=unconfined_u:object_r:var_t:s0 tclass=file
-            ```
+    2. Tạo mới module
+        ```sh
+        sudo cat /var/log/audit/audit.log | grep nginx | grep denied | sudo audit2allow -M nginx
+        ```
 
-        2. Tạo mới module
-            ```sh
-            sudo cat /var/log/audit/audit.log | grep nginx | grep denied | sudo audit2allow -M nginx
-            ```
+    3. Áp dụng module:
+        ```sh
+        sudo semodule -i nginx.pp
+        ```
 
-        3. Áp dụng module:
-            ```sh
-            sudo semodule -i nginx.pp
-            ```
+    4. Kiểm tra: Truy cập trình duyệt với đường dẫn đã cấu hình đã hiển thị được trang web.
 
-        4. Kiểm tra: Truy cập trình duyệt với đường dẫn đã cấu hình đã hiển thị được trang web.
+    5. Nếu vẫn lỗi thì lặp lại các bước 1 - 4 đến khi không còn nhận được lỗi 502.
+        - Xem lỗi mới sau khi chạy lệnh `sudo cat /var/log/audit/audit.log | grep nginx | grep denied`
+        - Có thể phải làm lại **nhiều lần** vì có nhiều SELinux Policies khác nhau.
 
-        5. Nếu vẫn lỗi thì lặp lại các bước 1 - 4 đến khi không còn nhận được lỗi 502.
-            - Xem lỗi mới sau khi chạy lệnh `sudo cat /var/log/audit/audit.log | grep nginx | grep denied`
-            - Có thể phải làm lại **nhiều lần** vì có nhiều SELinux Policies khác nhau.
-
-### Tài liệu liên quan
+### References
 
 * [8.3.8. Allowing Access: audit2allow](https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/6/html/Security-Enhanced_Linux/sect-Security-Enhanced_Linux-Fixing_Problems-Allowing_Access_audit2allow.html)
 * [centos7 中关于 nginx 的权限问题](https://www.v2ex.com/t/171804)
