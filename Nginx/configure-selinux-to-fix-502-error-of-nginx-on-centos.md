@@ -90,30 +90,81 @@
     sudo yum install -y policycoreutils-python
     ```
 
-- Cài đặt và áp dụng các quy tắc chư được chấp nhận cho Nginx.
-    1. Check audit.log
-        ```sh
-        sudo cat /var/log/audit/audit.log | grep nginx | grep denied
+- Cài đặt và áp dụng các quy tắc chưa được chấp nhận cho Nginx.
+    - Cách 1: áp dụng các quy tắc chưa được chấp nhận có trong `audit.log`
+        1. Check audit.log
+            ```sh
+            sudo cat /var/log/audit/audit.log | grep nginx | grep denied
 
-        // You may find messages like:
-        type=AVC msg=audit(1506398841.964:345): avc:  denied  { getattr } for  pid=20510 comm="nginx" path="/var/www/html/index.html" dev="dm-0" ino=635249 scontext=system_u:system_r:httpd_t:s0 tcontext=unconfined_u:object_r:var_t:s0 tclass=file
-        ```
+            // You may find messages like:
+            type=AVC msg=audit(1506398841.964:345): avc:  denied  { getattr } for  pid=20510 comm="nginx" path="/var/www/html/index.html" dev="dm-0" ino=635249 scontext=system_u:system_r:httpd_t:s0 tcontext=unconfined_u:object_r:var_t:s0 tclass=file
+            ```
 
-    2. Tạo mới module
-        ```sh
-        sudo cat /var/log/audit/audit.log | grep nginx | grep denied | sudo audit2allow -M nginx
-        ```
+        2. Tạo mới module
+            ```sh
+            sudo cat /var/log/audit/audit.log | grep nginx | grep denied | sudo audit2allow -M nginx
+            ```
 
-    3. Áp dụng module:
-        ```sh
-        sudo semodule -i nginx.pp
-        ```
+        3. Áp dụng policy module:
+            ```sh
+            sudo semodule -i nginx.pp
+            ```
 
-    4. Kiểm tra: Truy cập trình duyệt với đường dẫn đã cấu hình đã hiển thị được trang web.
+        4. Kiểm tra: Truy cập trình duyệt với đường dẫn đã cấu hình đã hiển thị được trang web.
 
-    5. Nếu vẫn lỗi thì lặp lại các bước 1 - 4 đến khi không còn nhận được lỗi 502.
-        - Xem lỗi mới sau khi chạy lệnh `sudo cat /var/log/audit/audit.log | grep nginx | grep denied`
-        - Có thể phải làm lại **nhiều lần** vì có nhiều SELinux Policies khác nhau.
+        5. Nếu vẫn lỗi thì lặp lại các bước 1 - 4 đến khi không còn nhận được lỗi 502.
+            - Xem lỗi mới sau khi chạy lệnh `sudo cat /var/log/audit/audit.log | grep nginx | grep denied`
+            - Có thể phải làm lại **nhiều lần** vì có nhiều SELinux Policies khác nhau.
+
+    - Cách 2: tùy chỉnh file `nginx.te`
+        1. Tạo SELinux policy module tùy chỉnh
+            ```sh
+            grep nginx /var/log/audit/audit.log | audit2allow -m nginx > nginx.te
+            cat nginx.te
+
+
+            module nginx 1.0;
+
+            require {
+                type var_run_t;
+                type user_home_dir_t;
+                type httpd_log_t;
+                type httpd_t;
+                type user_home_t;
+                type httpd_sys_content_t;
+                type initrc_t;
+                type http_cache_port_t;
+                class sock_file write;
+                class unix_stream_socket connectto;
+                class dir { search getattr };
+                class file { read write setattr };
+                class tcp_socket name_connect;
+            }
+
+            #============= httpd_t ==============
+
+            #!!!! This avc is allowed in the current policy
+            allow httpd_t http_cache_port_t:tcp_socket name_connect;
+            allow httpd_t httpd_log_t:file setattr;
+            allow httpd_t httpd_sys_content_t:sock_file write;
+            allow httpd_t initrc_t:unix_stream_socket connectto;
+
+            #!!!! This avc is allowed in the current policy
+            allow httpd_t user_home_dir_t:dir search;
+
+            #!!!! This avc is allowed in the current policy
+            allow httpd_t user_home_t:dir { search getattr };
+            allow httpd_t user_home_t:sock_file write;
+            allow httpd_t var_run_t:file { read write };
+            ```
+        2. Chạy lệnh để tạo policy module
+            ```sh
+            grep nginx /var/log/audit/audit.log | audit2allow -M nginx
+            ```
+        3. Áp dụng policy module
+            ```sh
+            semodule -i nginx.pp
+            ```
 
 ### References
 
